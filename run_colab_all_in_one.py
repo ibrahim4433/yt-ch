@@ -126,10 +126,17 @@ def run_pipeline():
         LocalGPUClient, process_video, append_extracted_units,
         save_checkpoint, load_checkpoints, save_checkpoints_dict, DATA_DIR
     )
-    from db.database import init_db, insert_qa_unit, get_stats
+    from db.database import init_db, insert_qa_unit, get_stats, DB_PATH
 
     # Initialize SQLite Database
     init_db()
+
+    # Auto-enrich any previous records in Google Drive that are missing Arabic dialectical fields
+    try:
+        from scripts.enrich_arabic_db import run_enrichment
+        run_enrichment(DB_PATH)
+    except Exception as e:
+        print(f"   [-] Note on Arabic enrichment check: {e}")
 
     # Verify GPU
     print("\n[3/5] Verifying GPU hardware...")

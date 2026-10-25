@@ -30,12 +30,21 @@ def translate_to_ar(text: str, max_retries: int = 3) -> str:
             time.sleep(1.0)
     return ""
 
-def run_enrichment():
-    conn = sqlite3.connect('data/dawah_knowledge.db')
+def run_enrichment(db_path=None):
+    if db_path is None:
+        from db.database import DB_PATH
+        db_path = DB_PATH
+
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    rows = conn.execute("SELECT * FROM qa_units").fetchall()
-    print(f"Found {len(rows)} records in database. Starting Arabic enrichment...")
+    rows = conn.execute("SELECT * FROM qa_units WHERE logical_premises_ar_json = '[]' OR logical_premises_ar_json IS NULL OR analogy_or_metaphor_ar = '' OR socratic_question_ar = ''").fetchall()
+    if not rows:
+        print("   ✅ All existing records in database are already 100% Arabic!")
+        conn.close()
+        return
+
+    print(f"   Found {len(rows)} records in database to enrich with Arabic fields...")
 
     updated_count = 0
     for r in rows:
