@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dawah Dialectics | Islamic Apologetics Q&A Engine</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="brand">
+        <span class="brand-icon">🕌</span>
+        <div class="brand-text">
+          <h1 id="nav-title">Dawah Dialectics</h1>
+          <p id="nav-subtitle">Applied Islamic Apologetics & Street Debate Archive</p>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <button id="lang-toggle-btn" class="lang-btn" onclick="toggleLanguage()">
+          <span class="lang-icon">🌐</span>
+          <span id="lang-label">العربية</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tab-nav">
+    <div class="tab-container">
+      <button class="tab-btn active" onclick="switchTab('search-tab')">
+        <span class="tab-icon">🔍</span>
+        <span id="tab-search-label">Search & Knowledge Base</span>
+      </button>
+      <button class="tab-btn" onclick="switchTab('chat-tab')">
+        <span class="tab-icon">💬</span>
+        <span id="tab-chat-label">Smart Dawah Assistant</span>
+      </button>
+      <button class="tab-btn" onclick="switchTab('stats-tab')">
+        <span class="tab-icon">📊</span>
+        <span id="tab-stats-label">Corpus & Video Archive</span>
+      </button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <!-- TAB 1: Search & Knowledge Base -->
+    <section id="search-tab" class="tab-pane active">
+      <div class="hero-search-box">
+        <h2 id="search-heading">Find Clear, Logical Answers to Any Inquiry About Islam</h2>
+        <p id="search-subheading">Distilled from 2,360+ live street debates, dialogues, and philosophical encounters.</p>
+        
+        <div class="search-bar-wrapper">
+          <input 
+            type="text" 
+            id="search-input" 
+            placeholder="Search questions (e.g., 'Who created God', 'Problem of evil', 'من خلق الله', 'التثليث')..."
+            autocomplete="off"
+            oninput="handleSearchInput()"
+          >
+          <button id="search-btn" onclick="performSearch()">
+            <span>🔍</span>
+          </button>
+        </div>
+
+        <!-- Filter Pills -->
+        <div class="filters-container">
+          <div class="filter-group">
+            <span class="filter-label" id="filter-topic-label">Topic:</span>
+            <div id="category-pills" class="pills-row">
+              <button class="pill active" data-category="all" onclick="setCategoryFilter('all', this)">All Topics</button>
+              <button class="pill" data-category="Theology & God's Existence" onclick="setCategoryFilter('Theology & God\'s Existence', this)">God's Existence</button>
+              <button class="pill" data-category="Problem of Evil & Suffering" onclick="setCategoryFilter('Problem of Evil & Suffering', this)">Problem of Evil</button>
+              <button class="pill" data-category="Comparative Religion & Christianity" onclick="setCategoryFilter('Comparative Religion & Christianity', this)">Christianity & Trinity</button>
+              <button class="pill" data-category="Objective Morality & Ethics" onclick="setCategoryFilter('Objective Morality & Ethics', this)">Morality</button>
+              <button class="pill" data-category="Epistemology & Science" onclick="setCategoryFilter('Epistemology & Science', this)">Science</button>
+              <button class="pill" data-category="Shariah & Social Inquiries" onclick="setCategoryFilter('Shariah & Social Inquiries', this)">Shariah & Women</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-header">
+        <span id="results-count-text">Showing dialectical Q&A units:</span>
+      </div>
+
+      <div id="qa-cards-container" class="qa-cards-grid">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+    </section>
+
+    <!-- TAB 2: Smart Dawah Assistant (Zero-LLM Fast Chatbot) -->
+    <section id="chat-tab" class="tab-pane">
+      <div class="chat-container">
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <span class="chat-bot-avatar">🤖</span>
+            <div>
+              <h3 id="assistant-title">Smart Dialectical Assistant</h3>
+              <p id="assistant-desc">Instant answers, deductive logic, intuitive analogies & exact debate timestamps (Zero-latency).</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Canned Quick Inquiries -->
+        <div class="prompt-chips">
+          <span class="chip-label" id="chip-hint">Try asking:</span>
+          <div id="prompt-chips-container" style="display:flex; gap:0.5rem; overflow-x:auto;">
+            <!-- Rendered dynamically by app.js -->
+          </div>
+        </div>
+
+        <div id="chat-messages" class="chat-messages-box">
+          <div class="message assistant-msg welcome-msg">
+            <div class="msg-content">
+              <p id="welcome-text">
+                Assalamu Alaikum! Ask me any theological objection, philosophical doubt, or inquiry about Islam. 
+                I will retrieve the exact logical deductions, concrete analogies, and the real-life debate video timestamps used by the team.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-bar">
+          <input 
+            type="text" 
+            id="chat-input" 
+            placeholder="Type your question or objection here (English or Arabic)..."
+            onkeydown="if(event.key === 'Enter') sendChatMessage()"
+          >
+          <button id="chat-send-btn" onclick="sendChatMessage()">
+            <span id="send-label">Send</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Corpus & Video Archive -->
+    <section id="stats-tab" class="tab-pane">
+      <div class="stats-overview">
+        <h2 id="stats-title">Corpus Metadata & Processing Inventory</h2>
+        <p id="stats-subtitle">Complete transparency: Tracking 2,360+ street debate transcripts with zero data loss.</p>
+
+        <div class="stats-cards-row">
+          <div class="stat-card">
+            <div class="stat-number" id="stat-videos">2,363</div>
+            <div class="stat-name" id="stat-videos-label">Subtitle Files Cataloged</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">5,955,997</div>
+            <div class="stat-name" id="stat-words-label">Spoken Words Preserved</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="stat-qa">8</div>
+            <div class="stat-name" id="stat-qa-label">Pre-Analyzed Q&A Units</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">6</div>
+            <div class="stat-name" id="stat-pillars-label">Foundational Pillars Covered</div>
+          </div>
+        </div>
+
+        <div class="colab-banner">
+          <div class="colab-icon">⚡</div>
+          <div class="colab-text">
+            <h3 id="colab-title">Scale Extraction on Google Colab (Free Tier)</h3>
+            <p id="colab-desc">Ready-to-run notebook included in repo (<code>dawah_knowledge_extractor_colab.ipynb</code>). Run batch distillation over all 2,363 files using free-tier APIs or Colab GPU without local device costs.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p id="footer-text">Dawah Dialectics Archive & Q&A Engine • Grounded in Truth, Reason, and Wisdom.</p>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

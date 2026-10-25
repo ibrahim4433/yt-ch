@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""
+run_colab_all_in_one.py
+ONE-STEP Automated Multi-Day Extractor for Google Colab (Free T4 GPU).
+
+Does everything in a single execution:
+  1. Mounts Google Drive & navigates to project folder.
+  2. Auto-installs GPU dependencies if missing.
+  3. Loads Qwen 2.5 7B Instruct in 4-bit into T4 GPU VRAM.
+  4. Resumes from last checkpoint automatically.
+  5. Extracts dialectical Q&As and updates SQLite database live on the fly.
+  6. 100% zero data loss when daily free GPU quota expires.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+# Force project root and working directory into sys.path immediately at module level
+CURRENT_DIR = str(Path(__file__).resolve().parent)
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+if os.getcwd() not in sys.path:
+    sys.path.insert(0, os.getcwd())
+
+import json
+import time
+
+
+# 1. Environment & Google Drive Auto-Setup
+def setup_environment():
+    print("=" * 70)
+    print("  🕌  DAWAH DIALECTICS: ONE-STEP LOCAL GPU PIPELINE")
+    print("=" * 70)
+
+    is_colab = "google.colab" in sys.modules or os.path.exists("/content")
+    if is_colab:
+        print("[1/5] Running inside Google Colab environment...")
+        try:
+            from google.colab import drive
+            if not os.path.exists("/content/drive/MyDrive"):
+                print("   -> Mounting Google Drive...")
+                drive.mount("/content/drive")
+            
+            drive_base = Path("/content/drive/MyDrive/yt-ch")
+            drive_downloads = drive_base / "Downloads"
+            drive_data = drive_base / "data"
+
+            drive_data.mkdir(parents=True, exist_ok=True)
+            print(f"   💾 Persistent Google Drive storage: {drive_data}")
+
+            # Link Google Drive Downloads to local workspace if not present
+            local_downloads = Path(CURRENT_DIR) / "Downloads"
+            if drive_downloads.exists() and not local_downloads.exists():
+                try:
+                    os.symlink(drive_downloads, local_downloads)
+                    print(f"   🔗 Linked subtitle corpus from Drive: {drive_downloads}")
+                except Exception:
+                    pass
+
+            print(f"   📁 Code workspace: {CURRENT_DIR}")
+        except Exception as e:
+            print(f"   [-] Note on Drive setup: {e}")
+    else:
+        print("[1/5] Running in standard environment.")
+
+    return is_colab
+
+    return is_colab
+
+
+# 2. Auto-Install Dependencies if Missing
+def ensure_dependencies():
+    print("\n[2/5] Checking GPU acceleration packages...")
+    packages = ["transformers", "torch", "accelerate", "bitsandbytes", "tqdm"]
+    missing = []
+    for pkg in packages:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+
+    if missing:
+        import subprocess
+        print(f"   -> Installing missing packages: {', '.join(missing)}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q"] + missing)
+        print("   -> Packages installed successfully.")
+    else:
+        print("   -> All required packages already installed.")
+
+
+# 3. Main One-Step Execution Loop
+def run_pipeline():
+    setup_environment()
+    ensure_dependencies()
+
+    # Double check sys.path before imports
+    for p in [os.getcwd(), CURRENT_DIR, "/content/yt-ch", "/content/drive/MyDrive/yt-ch"]:
+        if os.path.exists(p) and p not in sys.path:
+            sys.path.insert(0, p)
+
+    import torch
+    from core.colab_runner import (
+        LocalGPUClient, process_video, append_extracted_units,
+        save_checkpoint, load_checkpoints, DATA_DIR
+    )
+    from db.database import init_db, insert_qa_unit, get_stats
+
+    # Initialize SQLite Database
+    init_db()
+
+    # Verify GPU
+    print("\n[3/5] Verifying GPU hardware...")
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        print(f"   ✅ GPU Detected: {gpu_name} ({vram_gb:.1f} GB VRAM)")
+    else:
+        print("   ⚠️ No GPU detected! Running on CPU (will be slower).")
+
+    # Load Model
+    print("\n[4/5] Loading Qwen 2.5 7B Instruct (4-bit) into GPU memory...")
+    client = LocalGPUClient(model_name="Qwen/Qwen2.5-7B-Instruct", load_in_4bit=True)
+
+    # Load Manifest & Checkpoints
+    manifest_path = DATA_DIR / "video_manifest.json"
+    if not manifest_path.exists():
+        from core.metadata_linker import build_manifest
+        manifest = build_manifest()
+    else:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+    # Silently ensure all paths use forward slashes for Linux compatibility
+    manifest_dirty = False
+    for v in manifest:
+        if "srt_file" in v and "\\" in v["srt_file"]:
+            v["srt_file"] = v["srt_file"].replace("\\", "/")
+            manifest_dirty = True
+    if manifest_dirty:
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    checkpoints = load_checkpoints()
+    processed_set = set(checkpoints.get("processed_video_ids", []))
+
+    total_videos = len(manifest)
+    completed_videos = len(processed_set)
+    remaining_videos = total_videos - completed_videos
+
+    print("\n[5/5] Starting Batch Dialectical Extraction...")
+    print(f"   📊 Total Archive: {total_videos} videos")
+    print(f"   ✅ Previously Completed: {completed_videos} videos")
+    print(f"   ⏳ Remaining to Process: {remaining_videos} videos")
+    print("-" * 70)
+
+    from tqdm.auto import tqdm
+    pbar = tqdm(manifest, desc="Extracting Q&A Units", initial=completed_videos, total=total_videos)
+
+    total_extracted_session = 0
+
+    try:
+        for video in pbar:
+            vid = video["video_id"]
+            if vid in processed_set:
+                continue
+
+            title_preview = video.get("title_ar", "")[:35]
+            pbar.set_postfix_str(f"{vid} | {title_preview}")
+
+            try:
+                units = process_video(video, client)
+                if units:
+                    # 1. Save to JSONL in Drive
+                    append_extracted_units(units)
+                    # 2. Save directly to SQLite DB in Drive live
+                    for u in units:
+                        insert_qa_unit(u)
+                    total_extracted_session += len(units)
+
+                # 3. Save checkpoint in Drive
+                save_checkpoint(vid, len(units))
+                processed_set.add(vid)
+
+            except Exception as e:
+                print(f"\n[-] Error on video {vid}: {e}")
+                time.sleep(2)
+
+    except KeyboardInterrupt:
+        print("\n[!] Execution paused by user. Progress safely saved.")
+
+    print("\n" + "=" * 70)
+    print(f"🎉 Session Complete! Extracted {total_extracted_session} Q&A arguments this session.")
+    print("   📊 Total Library Stats:", get_stats())
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    run_pipeline()
