@@ -13,11 +13,13 @@ const CATEGORY_MAP = {
   "Comparative Religion & Christianity": { en: "Christianity & Trinity", ar: "مقارنة الأديان والنصرانية" },
   "Objective Morality & Ethics": { en: "Morality", ar: "الأخلاق الموضوعية والإلحاد" },
   "Epistemology & Science": { en: "Science", ar: "المعرفة والعلم التجريبي" },
+  "Prophethood & Quran": { en: "Prophethood & Quran", ar: "النبوة والقرآن الكريم" },
   "Shariah & Social Inquiries": { en: "Shariah & Women", ar: "الشريعة والشبهات الاجتماعية" }
 };
 
 const INTERLOCUTOR_MAP = {
   "Atheist / Materialist": { en: "Atheist / Materialist", ar: "ملحد / مادي" },
+  "Materialist": { en: "Materialist", ar: "مادي" },
   "Christian / Trinitarian": { en: "Christian / Trinitarian", ar: "مسيحي / نصراني" },
   "Agnostic / Skeptic": { en: "Agnostic / Skeptic", ar: "لاأدري / متشكك" },
   "Secular Humanist / Christian": { en: "Secular / Christian", ar: "علماني / نصراني" },
@@ -224,6 +226,12 @@ function performSearch() {
     });
 }
 
+function isNoneText(str) {
+  if (!str) return true;
+  const s = String(str).trim().toLowerCase();
+  return ["none", "none used", "none used.", "none.", "n/a", "no", "not applicable"].includes(s);
+}
+
 function renderCards(cards) {
   const container = document.getElementById("qa-cards-container");
   container.innerHTML = "";
@@ -263,7 +271,7 @@ function renderCards(cards) {
     // Analogy in active language
     const analogyText = isAr && card.analogy_or_metaphor_ar ? card.analogy_or_metaphor_ar : card.analogy_or_metaphor;
     let analogyHtml = "";
-    if (analogyText) {
+    if (analogyText && !isNoneText(analogyText)) {
       analogyHtml = `
         <div class="analogy-callout">
           <div class="analogy-header">💡 ${t.analogyLabel}</div>
@@ -275,7 +283,7 @@ function renderCards(cards) {
     // Socratic question in active language
     const socraticText = isAr && card.socratic_question_ar ? card.socratic_question_ar : card.socratic_question;
     let socraticHtml = "";
-    if (socraticText) {
+    if (socraticText && !isNoneText(socraticText)) {
       socraticHtml = `
         <div class="socratic-callout" style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); border-radius:var(--radius-md); padding:0.85rem 1rem; margin-bottom:1.25rem;">
           <div style="font-size:0.85rem; font-weight:700; color:#60a5fa; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">❓ ${t.socraticLabel}</div>
@@ -376,7 +384,7 @@ function sendChatMessage() {
         }
 
         let analogyHtml = "";
-        if (pkg.analogy) {
+        if (pkg.analogy && !isNoneText(pkg.analogy)) {
           analogyHtml = `
             <div class="analogy-callout" style="margin-top:0.75rem;">
               <div class="analogy-header">💡 ${t.analogyLabel}</div>
@@ -386,7 +394,7 @@ function sendChatMessage() {
         }
 
         let socraticHtml = "";
-        if (pkg.socratic_question) {
+        if (pkg.socratic_question && !isNoneText(pkg.socratic_question)) {
           socraticHtml = `
             <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); border-radius:var(--radius-md); padding:0.85rem 1rem; margin-top:0.75rem;">
               <div style="font-size:0.85rem; font-weight:700; color:#60a5fa; margin-bottom:0.35rem; display:flex; align-items:center; gap:0.4rem;">❓ ${t.socraticLabel}</div>

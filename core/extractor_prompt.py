@@ -10,24 +10,33 @@ Your task is to analyze conversational street debate transcripts (from Speakers'
 
 Do NOT summarize casually. You must extract the underlying dialectical and persuasive structure so no philosophical or theological value is lost.
 
-For each distinct question, objection, or inquiry in the transcript, extract a JSON object with this EXACT structure:
+For each distinct question, objection, or inquiry in the transcript, extract a JSON object with this EXACT structure (BOTH English and Arabic fields are REQUIRED):
 {
   "question_en": "Precise, standardized question or objection in English",
   "question_ar": "الترجمة الدقيقة للسؤال أو الشبهة باللغة العربية الفصحى",
   "topic_category": "One of: [Theology & God's Existence, Comparative Religion & Christianity, Problem of Evil & Suffering, Objective Morality & Ethics, Epistemology & Science, Prophethood & Quran, Shariah & Social Inquiries]",
   "topic_subcategory": "Specific subtopic (e.g. Contingency Argument, Trinity Contradictions, Biblical Manuscripts, Divine Wisdom, Evolution)",
   "interlocutor_type": "One of: [Atheist / Materialist, Christian / Trinitarian, Agnostic / Skeptic, Secular Humanist, Inquiring Seeker, Muslim with Doubts]",
-  "core_answer_summary_en": "Clear, concise 2-3 sentence distillation of the Islamic answer provided by the speaker",
-  "core_answer_summary_ar": "ملخص واضح ومباشر للإجابة الإسلامية المقدمة بالحوار في سطرين أو ثلاثة",
+  "core_answer_summary_en": "Clear, concise 2-3 sentence distillation of the Islamic answer provided by the speaker in English",
+  "core_answer_summary_ar": "ملخص واضح ومباشر للإجابة الإسلامية المقدمة بالحوار باللغة العربية في سطرين أو ثلاثة",
   "logical_premises": [
     "Premise 1: ...",
     "Premise 2: ...",
     "Conclusion: ..."
   ],
-  "fallacy_or_misconception_exposed": "Name or explanation of the logical fallacy or false premise the interlocutor held (e.g. Category error, Begging the question, False dichotomy, Straw man, Equivocation)",
-  "analogy_or_metaphor": "The exact everyday analogy, parable, or thought experiment used by the Da'ee (e.g. Watchmaker, The infinite dominoes, The painter and painting, The surgery/child analogy). If none was used, explain the intuitive mental model used.",
-  "socratic_question": "The probing or reversing question the Da'ee asked the interlocutor to make them realize the inconsistency in their own worldview.",
-  "verbatim_quote": "The exact, most powerful excerpt from the transcript showing the speaker delivering the core argument.",
+  "logical_premises_ar": [
+    "المقدمة الأولى: ...",
+    "المقدمة الثانية: ...",
+    "النتيجة: ..."
+  ],
+  "fallacy_or_misconception_exposed": "Name or explanation of the logical fallacy in English (e.g. Category error, False dichotomy, Straw man)",
+  "fallacy_or_misconception_exposed_ar": "اسم وشرح المغالطة المنطقية بالعربية (مثال: مغالطة خلط المفاهيم، ثنائية زائفة، مصادرة على المطلوب)",
+  "analogy_or_metaphor": "The exact everyday analogy used by the Da'ee in English (e.g. Watchmaker, Infinite dominoes, Surgeon). If none used, leave empty string",
+  "analogy_or_metaphor_ar": "المثال التوضيحي أو القياس العملي المستخدم بالعربية. إذا لم يُذكر مثال، اتركه فارغاً",
+  "socratic_question": "The probing or reversing question the Da'ee asked in English",
+  "socratic_question_ar": "السؤال السقراطي المعاكس لإلزام الخصم بالعربية",
+  "verbatim_quote": "The exact excerpt from the transcript in English showing the speaker delivering the core argument",
+  "verbatim_quote_ar": "ترجمة عربية دقيقة للاقتباس الحرفي من كلام الداعية في الحوار",
   "timestamp_seconds": 120,
   "timestamp_formatted": "02:00",
   "tags": ["Tag1", "Tag2", "Tag3"]

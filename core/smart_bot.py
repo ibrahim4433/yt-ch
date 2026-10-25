@@ -19,11 +19,13 @@ CATEGORY_TRANSLATIONS = {
     "Comparative Religion & Christianity": "مقارنة الأديان والنصرانية",
     "Objective Morality & Ethics": "الأخلاق الموضوعية والإلحاد",
     "Epistemology & Science": "المعرفة والعلم التجريبي",
+    "Prophethood & Quran": "النبوة والقرآن الكريم",
     "Shariah & Social Inquiries": "الشريعة والشبهات الاجتماعية"
 }
 
 INTERLOCUTOR_TRANSLATIONS = {
     "Atheist / Materialist": "ملحد / مادي",
+    "Materialist": "مادي",
     "Christian / Trinitarian": "مسيحي / نصراني",
     "Agnostic / Skeptic": "لاأدري / متشكك",
     "Secular Humanist / Christian": "علماني / نصراني",
@@ -273,6 +275,11 @@ class SmartDialecticBot:
         analogy = qa.get("analogy_or_metaphor_ar") if is_ar and qa.get("analogy_or_metaphor_ar") else qa.get("analogy_or_metaphor")
         socratic = qa.get("socratic_question_ar") if is_ar and qa.get("socratic_question_ar") else qa.get("socratic_question")
         verbatim = qa.get("verbatim_quote_ar") if is_ar and qa.get("verbatim_quote_ar") else qa.get("verbatim_quote")
+
+        if analogy and str(analogy).strip().lower() in ["none", "none used", "none used.", "none.", "n/a", ""]:
+            analogy = ""
+        if socratic and str(socratic).strip().lower() in ["none", "none used", "none used.", "none.", "n/a", ""]:
+            socratic = ""
         cat = CATEGORY_TRANSLATIONS.get(qa.get("topic_category"), qa.get("topic_category")) if is_ar else qa.get("topic_category")
         interlocutor = INTERLOCUTOR_TRANSLATIONS.get(qa.get("interlocutor_type"), qa.get("interlocutor_type")) if is_ar else qa.get("interlocutor_type")
 
