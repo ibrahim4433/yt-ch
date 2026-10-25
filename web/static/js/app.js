@@ -252,8 +252,9 @@ function renderCards(cards) {
     const categoryName = (CATEGORY_MAP[card.topic_category] && CATEGORY_MAP[card.topic_category][isAr ? "ar" : "en"]) || card.topic_category;
     const interlocutorName = (INTERLOCUTOR_MAP[card.interlocutor_type] && INTERLOCUTOR_MAP[card.interlocutor_type][isAr ? "ar" : "en"]) || card.interlocutor_type;
 
-    // Premises list in active language
-    const premises = isAr && card.logical_premises_ar && card.logical_premises_ar.length ? card.logical_premises_ar : (card.logical_premises || []);
+    // Premises list in active language (filter empty strings)
+    const rawPremises = isAr && card.logical_premises_ar && card.logical_premises_ar.length ? card.logical_premises_ar : (card.logical_premises || []);
+    const premises = (rawPremises || []).map(p => String(p || "").trim()).filter(p => p.length > 0);
     let premisesHtml = "";
     if (premises.length) {
       premisesHtml = `
@@ -372,12 +373,13 @@ function sendChatMessage() {
         }
 
         let premisesListHtml = "";
-        if (pkg.logical_premises && pkg.logical_premises.length) {
+        const cleanBotPremises = (pkg.logical_premises || []).map(p => String(p || "").trim()).filter(p => p.length > 0);
+        if (cleanBotPremises.length) {
           premisesListHtml = `
             <div class="premises-box" style="margin-top:0.75rem;">
               <div class="premises-title">🧠 ${t.premisesLabel}</div>
               <ul class="premises-list">
-                ${pkg.logical_premises.map((p, idx) => `<li><span class="premise-num">${idx + 1}.</span> ${escapeHtml(p)}</li>`).join("")}
+                ${cleanBotPremises.map((p, idx) => `<li><span class="premise-num">${idx + 1}.</span> ${escapeHtml(p)}</li>`).join("")}
               </ul>
             </div>
           `;

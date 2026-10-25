@@ -271,7 +271,8 @@ class SmartDialecticBot:
 
     def _format_response_package(self, qa: Dict[str, Any], lang: str) -> Dict[str, Any]:
         is_ar = (lang == "ar")
-        premises = qa.get("logical_premises_ar") if is_ar and qa.get("logical_premises_ar") else qa.get("logical_premises", [])
+        raw_premises = qa.get("logical_premises_ar") if is_ar and qa.get("logical_premises_ar") else qa.get("logical_premises", [])
+        premises = [str(p).strip() for p in (raw_premises or []) if str(p).strip()]
         analogy = qa.get("analogy_or_metaphor_ar") if is_ar and qa.get("analogy_or_metaphor_ar") else qa.get("analogy_or_metaphor")
         socratic = qa.get("socratic_question_ar") if is_ar and qa.get("socratic_question_ar") else qa.get("socratic_question")
         verbatim = qa.get("verbatim_quote_ar") if is_ar and qa.get("verbatim_quote_ar") else qa.get("verbatim_quote")
