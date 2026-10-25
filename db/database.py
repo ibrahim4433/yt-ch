@@ -164,22 +164,6 @@ def init_db():
 
     conn.close()
 
-    # Auto-seed pilot QA units if qa_units table is empty
-    conn = get_db_connection()
-    try:
-        cur = conn.execute("SELECT COUNT(*) FROM qa_units")
-        if cur.fetchone()[0] == 0:
-            pilot_file = DATA_DIR / "pilot_qa_dataset.json"
-            if not pilot_file.exists():
-                pilot_file = BASE_DIR / "data" / "pilot_qa_dataset.json"
-            if pilot_file.exists():
-                with open(pilot_file, "r", encoding="utf-8") as f:
-                    pilots = json.load(f)
-                for p in pilots:
-                    insert_qa_unit(p)
-    finally:
-        conn.close()
-
 
 def insert_qa_unit(unit: Dict[str, Any]):
     conn = get_db_connection()

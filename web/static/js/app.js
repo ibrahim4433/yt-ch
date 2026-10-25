@@ -354,6 +354,15 @@ function sendChatMessage() {
 
       let botResponseHtml = "";
       if (pkg) {
+        let noticeHtml = "";
+        if (data.status === "partial_match" && data.message) {
+          noticeHtml = `
+            <div style="background:rgba(234, 179, 8, 0.12); border:1px solid rgba(234, 179, 8, 0.35); border-radius:var(--radius-md); padding:0.75rem 1rem; margin-bottom:0.85rem; font-size:0.9rem; color:#fef08a;">
+              ${escapeHtml(data.message)}
+            </div>
+          `;
+        }
+
         let premisesListHtml = "";
         if (pkg.logical_premises && pkg.logical_premises.length) {
           premisesListHtml = `
@@ -387,6 +396,7 @@ function sendChatMessage() {
         }
 
         botResponseHtml = `
+          ${noticeHtml}
           <div style="margin-bottom:0.75rem;">
             <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
               <span class="badge badge-category">${escapeHtml(pkg.category)}</span>
@@ -412,7 +422,27 @@ function sendChatMessage() {
           </div>
         `;
       } else {
-        botResponseHtml = `<p>${escapeHtml(data.message || "No matching answer found.")}</p>`;
+        let suggestionsHtml = "";
+        if (data.related_questions && data.related_questions.length) {
+          suggestionsHtml = `
+            <div style="margin-top:1rem; border-top:1px solid var(--border-color); padding-top:0.75rem;">
+              <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.5rem;">${isAr ? "💡 استكشف أحد الأسئلة المتاحة حالياً في الأرشيف:" : "💡 Or explore available questions in the archive:"}</div>
+              <div style="display:flex; flex-direction:column; gap:0.4rem;">
+                ${data.related_questions.map(q => `
+                  <button class="topic-chip" style="text-align:inherit; width:100%; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); color:#e5e7eb; cursor:pointer;" onclick="askAssistant('${escapeHtml(q.question)}')">
+                    📌 ${escapeHtml(q.question)}
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+          `;
+        }
+        botResponseHtml = `
+          <div style="line-height:1.7; white-space:pre-line; color:#e5e7eb; padding:0.25rem 0;">
+            ${escapeHtml(data.message || (isAr ? "لم نجد إجابة مطابقة." : "No matching answer found."))}
+          </div>
+          ${suggestionsHtml}
+        `;
       }
 
       const botMsgEl = document.createElement("div");

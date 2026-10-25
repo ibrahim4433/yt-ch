@@ -86,6 +86,30 @@ THEOLOGICAL_INTENT_MAP = [
 ]
 
 
+ARABIC_STOPWORDS = {
+    "لماذا", "كيف", "هل", "ما", "ماذا", "من", "اين", "متى", "كم", "اي", "اية",
+    "في", "على", "الى", "عن", "مع", "بين", "حتى", "منذ", "مذ",
+    "ان", "انما", "كان", "يكون", "تكون", "اصبح", "ليس",
+    "هو", "هي", "هم", "هما", "هن", "انت", "انتم", "انا", "نحن",
+    "هذا", "هذه", "هؤلاء", "ذلك", "تلك", "اولئك",
+    "الذي", "التي", "الذين", "اللاتي", "اللواتي",
+    "كل", "بعض", "غير", "سوى", "الا", "او", "ام", "بل", "لكن", "ثم", "و", "ف", "يا"
+}
+
+ENGLISH_STOPWORDS = {
+    "why", "how", "what", "where", "when", "who", "which", "whom", "whose",
+    "is", "are", "was", "were", "be", "been", "being", "do", "does", "did",
+    "have", "has", "had", "having", "can", "could", "should", "would", "will",
+    "the", "a", "an", "and", "or", "but", "if", "because", "as", "until",
+    "in", "on", "at", "to", "for", "with", "about", "against", "between",
+    "into", "through", "during", "before", "after", "above", "below", "from",
+    "up", "down", "off", "over", "under", "again", "further", "then", "once",
+    "here", "there", "all", "any", "both", "each", "few", "more", "most",
+    "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+    "than", "too", "very", "just", "don", "t"
+}
+
+
 def normalize_text(text: str) -> str:
     if not text:
         return ""
@@ -105,34 +129,42 @@ def detect_language(text: str) -> str:
 
 
 def compute_match_score(query_norm: str, item: Dict[str, Any], query_lang: str) -> float:
-    score = 0.0
-    q_tokens = set(query_norm.split())
-    if not q_tokens:
+    stopwords = ARABIC_STOPWORDS if query_lang == "ar" else ENGLISH_STOPWORDS
+    raw_tokens = query_norm.split()
+    content_tokens = [t for t in raw_tokens if t not in stopwords and len(t) > 1]
+
+    search_tokens = content_tokens if content_tokens else raw_tokens
+    if not search_tokens:
         return 0.0
 
     target_q = normalize_text(item.get("question_ar" if query_lang == "ar" else "question_en", ""))
     target_tokens = set(target_q.split())
+    target_content_tokens = {t for t in target_tokens if t not in stopwords}
 
     if query_norm in target_q:
-        score += 80.0
+        return 95.0
 
-    overlap = len(q_tokens.intersection(target_tokens))
-    if overlap > 0:
-        score += (overlap / len(q_tokens)) * 50.0
+    # Overlap MUST be evaluated on content tokens
+    overlap = len(set(search_tokens).intersection(target_content_tokens))
+    if overlap == 0:
+        return 0.0
+
+    score = (overlap / len(search_tokens)) * 70.0
 
     summary_text = normalize_text(
         (item.get("core_answer_summary_ar") if query_lang == "ar" else item.get("core_answer_summary_en")) or ""
     )
-    summary_tokens = set(summary_text.split())
-    sum_overlap = len(q_tokens.intersection(summary_tokens))
-    score += sum_overlap * 5.0
+    summary_tokens = {t for t in summary_text.split() if t not in stopwords}
+    sum_overlap = len(set(search_tokens).intersection(summary_tokens))
+    score += (sum_overlap / len(search_tokens)) * 20.0
 
     tags = [normalize_text(t) for t in item.get("tags", [])]
     for tag in tags:
-        if tag in query_norm or any(tok in tag for tok in q_tokens):
-            score += 15.0
+        if any(tok in tag for tok in search_tokens):
+            score += 10.0
+            break
 
-    return score
+    return min(score, 100.0)
 
 
 class SmartDialecticBot:
@@ -166,20 +198,21 @@ class SmartDialecticBot:
         for c in candidates:
             sc = compute_match_score(query_norm, c, query_lang)
             if intent_category and c.get("topic_category") == intent_category:
-                sc += 25.0
+                sc += 15.0
             scored_candidates.append((sc, c))
 
         scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored_candidates[0][0] if scored_candidates else 0.0
 
-        if scored_candidates and scored_candidates[0][0] > 5.0:
+        if scored_candidates and top_score >= 35.0:
             best_match = scored_candidates[0][1]
-            related = [c[1] for c in scored_candidates[1:4] if c[0] > 0]
-            
+            related = [c[1] for c in scored_candidates[1:4] if c[0] >= 15.0]
+
             return {
                 "status": "success",
                 "query": user_query,
                 "language": query_lang,
-                "confidence_score": round(scored_candidates[0][0], 2),
+                "confidence_score": round(top_score, 2),
                 "matched_qa": best_match,
                 "response_package": self._format_response_package(best_match, query_lang),
                 "related_questions": [
@@ -190,22 +223,48 @@ class SmartDialecticBot:
                     } for r in related
                 ]
             }
-        else:
-            top_default = candidates[0] if candidates else None
+        elif scored_candidates and top_score >= 15.0:
+            best_match = scored_candidates[0][1]
             return {
                 "status": "partial_match",
                 "query": user_query,
                 "language": query_lang,
-                "message": "لم أجد تطابقاً حرفياً مباشراً، ولكن هذه أقرب مناظرة فلسفية تجيب عن سياق سؤالك:" if query_lang == "ar" else "No exact match was found, but here is the closest philosophical dialogue addressing your inquiry:",
-                "matched_qa": top_default,
-                "response_package": self._format_response_package(top_default, query_lang) if top_default else None,
+                "confidence_score": round(top_score, 2),
+                "message": (
+                    "⚠️ لم نجد إجابة مباشرة متطابقة حرفياً مع سؤالك في الحلقات المستخرجة حتى الآن، ولكن هذه أقرب محاورة في سياق عام:"
+                    if query_lang == "ar" else
+                    "⚠️ No direct exact match was found in the extracted corpus yet, but here is the closest related dialogue:"
+                ),
+                "matched_qa": best_match,
+                "response_package": self._format_response_package(best_match, query_lang),
+                "related_questions": []
+            }
+        else:
+            return {
+                "status": "no_match",
+                "query": user_query,
+                "language": query_lang,
+                "confidence_score": 0.0,
+                "message": (
+                    "عذراً، لم نعثر حتى الآن على حجة مسجلة تتناول موضوع سؤالك في الحلقات المستخرجة حالياً. "
+                    "نظراً لأن عملية استخراج الأرشيف ما زالت جارية، يمكنك تجربة أحد الموضوعات المتوفرة حالياً مثل:\n"
+                    "• وجود الله وقانون السببية\n"
+                    "• الرد على شبهات تحريف القرآن ومقارنة المخطوطات\n"
+                    "• ألوهية المسيح ومناظرات التثليث\n"
+                    "• حدود المنهج العلمي ونقد المادية"
+                    if query_lang == "ar" else
+                    "Sorry, no specific dialectical argument has been extracted for this exact topic yet in the current archive. "
+                    "Try searching for available topics such as God's existence, the Trinity, textual preservation, or scientism."
+                ),
+                "matched_qa": None,
+                "response_package": None,
                 "related_questions": [
                     {
                         "id": c["id"],
                         "question": c["question_ar"] if query_lang == "ar" else c["question_en"],
                         "category": CATEGORY_TRANSLATIONS.get(c["topic_category"], c["topic_category"]) if query_lang == "ar" else c["topic_category"]
-                    } for c in candidates[:4]
-                ]
+                    } for c in candidates[:3]
+                ] if candidates else []
             }
 
     def _format_response_package(self, qa: Dict[str, Any], lang: str) -> Dict[str, Any]:
