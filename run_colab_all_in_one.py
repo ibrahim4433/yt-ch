@@ -58,7 +58,24 @@ def setup_environment():
                 except Exception:
                     pass
 
-            print(f"   📁 Code workspace: {CURRENT_DIR}")
+            # Remove any stale code folders on Drive that might shadow the active Git repository
+            for stale_dir in ["core", "db", "web", "scripts", "tests", "__pycache__"]:
+                stale_path = drive_base / stale_dir
+                if stale_path.exists() and stale_path.is_dir():
+                    try:
+                        import shutil
+                        shutil.rmtree(stale_path)
+                    except Exception:
+                        pass
+            for stale_file in ["run_colab_all_in_one.py", "run_app.py", "download_videos.py"]:
+                stale_path = drive_base / stale_file
+                if stale_path.exists():
+                    try:
+                        stale_path.unlink()
+                    except Exception:
+                        pass
+
+            print(f"   📁 Active Code Workspace: {CURRENT_DIR}")
         except Exception as e:
             print(f"   [-] Note on Drive setup: {e}")
     else:
@@ -94,15 +111,20 @@ def run_pipeline():
     setup_environment()
     ensure_dependencies()
 
-    # Double check sys.path before imports
-    for p in [os.getcwd(), CURRENT_DIR, "/content/yt-ch", "/content/drive/MyDrive/yt-ch"]:
-        if os.path.exists(p) and p not in sys.path:
-            sys.path.insert(0, p)
+    # Purge any Google Drive code paths from sys.path so they never shadow the git repo
+    sys.path = [p for p in sys.path if "drive/MyDrive/yt-ch" not in p.replace("\\", "/")]
+    if "/content/yt-ch" in sys.path:
+        sys.path.remove("/content/yt-ch")
+    if os.path.exists("/content/yt-ch"):
+        sys.path.insert(0, "/content/yt-ch")
+    if CURRENT_DIR in sys.path:
+        sys.path.remove(CURRENT_DIR)
+    sys.path.insert(0, CURRENT_DIR)
 
     import torch
     from core.colab_runner import (
         LocalGPUClient, process_video, append_extracted_units,
-        save_checkpoint, load_checkpoints, DATA_DIR
+        save_checkpoint, load_checkpoints, save_checkpoints_dict, DATA_DIR
     )
     from db.database import init_db, insert_qa_unit, get_stats
 
@@ -151,7 +173,6 @@ def run_pipeline():
         print("   🔄 Automatically resetting checkpoint so real GPU extraction will run on all videos!")
         checkpoints = {"processed_video_ids": [], "total_qa_extracted": 0}
         processed_set = set()
-        from core.colab_runner import save_checkpoints_dict
         save_checkpoints_dict(checkpoints)
 
     total_videos = len(manifest)
