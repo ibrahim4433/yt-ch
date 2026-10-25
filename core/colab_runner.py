@@ -116,7 +116,7 @@ class LocalGPUClient:
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         
         quant_config = None
-        if load_in_4bit:
+        if load_in_4bit and torch.cuda.is_available():
             try:
                 from transformers import BitsAndBytesConfig
                 quant_config = BitsAndBytesConfig(
@@ -127,12 +127,15 @@ class LocalGPUClient:
                 )
             except ImportError:
                 print("[-] bitsandbytes not found, continuing without 4-bit quant.")
+        elif not torch.cuda.is_available():
+            print("   ⚠️ NOTE: Running on CPU without GPU acceleration!")
+            print("   💡 bitsandbytes 4-bit is disabled on CPU. Switch to T4 GPU for 20x faster extraction.")
 
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             device_map="auto",
-            quantization_config=quant_config,
-            torch_dtype=torch.float16
+            quantization_config=quant_config if torch.cuda.is_available() else None,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
         )
         print("[+] Model loaded into GPU VRAM successfully!")
 
