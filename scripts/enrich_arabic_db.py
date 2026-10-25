@@ -5,6 +5,11 @@ import urllib.parse
 import time
 import io
 import sys
+import os
+import pathlib
+
+# Ensure project root is in sys.path
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
