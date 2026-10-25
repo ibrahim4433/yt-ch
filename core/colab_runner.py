@@ -48,14 +48,20 @@ def load_checkpoints() -> Dict[str, Any]:
     return {"processed_video_ids": [], "total_qa_extracted": 0}
 
 
+def save_checkpoints_dict(state: Dict[str, Any]):
+    """Saves the complete checkpoints dictionary directly."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
 def save_checkpoint(video_id: str, count_extracted: int):
     """Saves progress after each video is processed."""
     state = load_checkpoints()
     if video_id not in state["processed_video_ids"]:
         state["processed_video_ids"].append(video_id)
         state["total_qa_extracted"] = state.get("total_qa_extracted", 0) + count_extracted
-    with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    save_checkpoints_dict(state)
 
 
 def append_extracted_units(units: List[Dict[str, Any]]):
@@ -215,11 +221,11 @@ def process_video(
             break
 
     if not srt_path:
-        return []
+        return None
 
     cues = parse_srt_file(srt_path)
     if not cues:
-        return []
+        return None
 
     chunks = chunk_transcript_for_extraction(
         cues,

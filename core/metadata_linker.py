@@ -128,6 +128,14 @@ def build_manifest(force_rebuild: bool = False) -> List[Dict[str, Any]]:
                 "status": "unlinked_metadata"
             })
 
+    # Deduplicate manifest by video_id
+    dedup_dict = {}
+    for item in manifest:
+        vid = item["video_id"]
+        if vid not in dedup_dict or item.get("file_size", 0) > dedup_dict[vid].get("file_size", 0):
+            dedup_dict[vid] = item
+    manifest = list(dedup_dict.values())
+
     # Save to JSON
     with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)

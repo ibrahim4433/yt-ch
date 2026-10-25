@@ -143,10 +143,21 @@ def run_pipeline():
 
     checkpoints = load_checkpoints()
     processed_set = set(checkpoints.get("processed_video_ids", []))
+    total_qa_recorded = checkpoints.get("total_qa_extracted", 0)
+
+    # Auto-repair: If checkpoint recorded 0 extractions across many skipped videos (e.g. from earlier path testing)
+    if len(processed_set) > 50 and total_qa_recorded == 0:
+        print("\n   ⚠️  Detected empty checkpoint from previous path test (videos were skipped without extraction).")
+        print("   🔄 Automatically resetting checkpoint so real GPU extraction will run on all videos!")
+        checkpoints = {"processed_video_ids": [], "total_qa_extracted": 0}
+        processed_set = set()
+        from core.colab_runner import save_checkpoints_dict
+        save_checkpoints_dict(checkpoints)
 
     total_videos = len(manifest)
     completed_videos = len(processed_set)
-    remaining_videos = total_videos - completed_videos
+    remaining_manifest = [v for v in manifest if v["video_id"] not in processed_set]
+    remaining_videos = len(remaining_manifest)
 
     print("\n[5/5] Starting Batch Dialectical Extraction...")
     print(f"   📊 Total Archive: {total_videos} videos")
@@ -155,21 +166,23 @@ def run_pipeline():
     print("-" * 70)
 
     from tqdm.auto import tqdm
-    pbar = tqdm(manifest, desc="Extracting Q&A Units", initial=completed_videos, total=total_videos)
+    pbar = tqdm(remaining_manifest, desc="Extracting Q&A Units", initial=completed_videos, total=total_videos)
 
     total_extracted_session = 0
 
     try:
         for video in pbar:
             vid = video["video_id"]
-            if vid in processed_set:
-                continue
-
             title_preview = video.get("title_ar", "")[:35]
             pbar.set_postfix_str(f"{vid} | {title_preview}")
 
             try:
                 units = process_video(video, client)
+                if units is None:
+                    # Subtitle missing or unreadable - do not mark as completed
+                    print(f"\n[-] Subtitle file not accessible for {vid}: {title_preview}")
+                    continue
+
                 if units:
                     # 1. Save to JSONL in Drive
                     append_extracted_units(units)
@@ -178,7 +191,7 @@ def run_pipeline():
                         insert_qa_unit(u)
                     total_extracted_session += len(units)
 
-                # 3. Save checkpoint in Drive
+                # 3. Save checkpoint in Drive (video was genuinely processed by model)
                 save_checkpoint(vid, len(units))
                 processed_set.add(vid)
 
