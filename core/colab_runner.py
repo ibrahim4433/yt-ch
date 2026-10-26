@@ -14,6 +14,9 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+# Prevent PyTorch CUDA memory fragmentation on Nvidia GPUs (T4 / A100)
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 try:
     from core.srt_parser import parse_srt_file, chunk_transcript_for_extraction
     from core.extractor_prompt import EXTRACTION_SYSTEM_PROMPT, USER_EXTRACTION_PROMPT_TEMPLATE
@@ -191,22 +194,27 @@ class LocalGPUClient:
 
         import torch
         # inference_mode() disables version tracking, view tracking, and is ~10-15% faster than no_grad()
-        with torch.inference_mode():
-            generated_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=1200,
-                temperature=0.2,
-                top_p=0.9,
-                do_sample=True,
-                eos_token_id=eos_ids,
-                pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
-            )
-            
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return response
+        try:
+            with torch.inference_mode():
+                generated_ids = self.model.generate(
+                    **inputs,
+                    max_new_tokens=900,
+                    temperature=0.2,
+                    top_p=0.9,
+                    do_sample=True,
+                    eos_token_id=eos_ids,
+                    pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
+                )
+                
+            generated_ids = [
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            return response
+        finally:
+            del inputs
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
 class ExtractionClient:
@@ -266,8 +274,8 @@ def is_corrupted_youtube_caption(text: str) -> bool:
 def process_video(
     video_record: Dict[str, Any],
     client: Any,
-    chunk_duration_sec: float = 420.0,
-    overlap_duration_sec: float = 45.0,
+    chunk_duration_sec: float = 240.0,
+    overlap_duration_sec: float = 30.0,
     verbose: bool = True
 ) -> List[Dict[str, Any]]:
     """Processes a single video by chunking its transcript and extracting all Q&As."""

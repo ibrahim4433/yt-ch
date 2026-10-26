@@ -16,6 +16,9 @@ import os
 import sys
 from pathlib import Path
 
+# Prevent PyTorch CUDA memory fragmentation on Nvidia GPUs (T4 / A100)
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 # Force project root and working directory into sys.path immediately at module level
 CURRENT_DIR = str(Path(__file__).resolve().parent)
 if CURRENT_DIR not in sys.path:
