@@ -43,12 +43,12 @@ For each distinct question, objection, or inquiry in the transcript, extract a J
 }
 
 STRICT EXTRACTION RULES:
-1. COMPLETENESS: If a 7-minute transcript covers 3 separate objections (e.g., first about the Trinity, then about Bible corruption, then about why Muslims fast), extract ALL 3 as separate units. Do not leave any valid inquiry unaddressed.
-2. ACCURACY: Do not hallucinate or invent Islamic positions not present or implied in the dialogue. Ground the extraction strictly in the da'ee's real reasoning.
-3. CLARITY: Polish the spoken question into a clear, searchable question while keeping the original intent.
-4. TIMESTAMPS: Identify the exact starting timestamp `[MM:SS]` where this specific inquiry or response began.
-5. EMPTY FALLBACK: If the segment contains only casual chit-chat, greetings, personal remarks, or sectarian/political conversation with NO theological, philosophical, or apologetics debate, output EXACTLY AND ONLY: []
-6. ZERO PREAMBLE: Start your response directly with '[' and end with ']'. NEVER output any markdown commentary, thought process, or introductory text before or after the JSON.
+1. COMPLETENESS: If a 7-minute transcript covers multiple objections or questions (e.g. about the Trinity, biblical verses, existence of God, morality, science, why Muslims fast), extract EVERY single one as a separate unit. Do not leave any valid inquiry or debate point unaddressed.
+2. ACCURACY: Ground the extraction strictly in the da'ee's real reasoning and spoken arguments. Do not invent positions not present in the dialogue.
+3. CLARITY: Polish the spoken question into a clear, searchable inquiry while keeping the original intent.
+4. TIMESTAMPS: Identify the exact starting timestamp `[MM:SS]` where this specific inquiry began.
+5. NO OMISSIONS: Even short exchanges or single objections must be extracted if they contain an intellectual inquiry or dialogue point.
+6. Return your output strictly as a JSON array of objects: `[ { ... }, { ... } ]`.
 """
 
 USER_EXTRACTION_PROMPT_TEMPLATE = """TRANSCRIPT METADATA:
@@ -59,5 +59,5 @@ Timestamp Range: {start_fmt} - {end_fmt}
 CONVERSATION TRANSCRIPT:
 {transcript_text}
 
-Extract all distinct dialectical Q&A units as a raw JSON array. Start your response directly with '['. If no theological/apologetics debate exists in this transcript, output exactly: []
+Analyze this transcript thoroughly and extract every dialectical Q&A exchange and argument into a valid JSON array: [ {{ ... }} ]
 """

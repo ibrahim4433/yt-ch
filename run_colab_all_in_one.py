@@ -182,6 +182,23 @@ def run_pipeline():
         processed_set = set()
         save_checkpoints_dict(checkpoints)
 
+    # Auto-heal: If any video in checkpoint has 0 extracted units in the database, re-queue it for proper extraction
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        real_video_ids = set(r[0] for r in conn.execute("SELECT DISTINCT video_id FROM qa_units WHERE video_id IS NOT NULL").fetchall())
+        conn.close()
+
+        valid_processed = [vid for vid in checkpoints.get("processed_video_ids", []) if vid in real_video_ids]
+        if len(valid_processed) < len(checkpoints.get("processed_video_ids", [])):
+            diff_count = len(checkpoints.get("processed_video_ids", [])) - len(valid_processed)
+            print(f"\n   🔄 Detected {diff_count} video(s) with 0 units. Resetting them for full extraction!")
+            checkpoints["processed_video_ids"] = valid_processed
+            save_checkpoints_dict(checkpoints)
+            processed_set = set(valid_processed)
+    except Exception as e:
+        print(f"   [-] Checkpoint sync note: {e}")
+
     total_videos = len(manifest)
     completed_videos = len(processed_set)
     remaining_manifest = [v for v in manifest if v["video_id"] not in processed_set]
