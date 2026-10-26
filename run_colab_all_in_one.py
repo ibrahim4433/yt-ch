@@ -191,6 +191,7 @@ def run_pipeline():
     print(f"   📊 Total Archive: {total_videos} videos")
     print(f"   ✅ Previously Completed: {completed_videos} videos")
     print(f"   ⏳ Remaining to Process: {remaining_videos} videos")
+    print(f"   💡 Live Log Monitor: /content/drive/MyDrive/yt-ch/data/extraction_live.log")
     print("-" * 70)
 
     from tqdm.auto import tqdm
@@ -203,12 +204,14 @@ def run_pipeline():
             vid = video["video_id"]
             title_preview = video.get("title_ar", "")[:35]
             pbar.set_postfix_str(f"{vid} | {title_preview}")
+            sys.stdout.flush()
 
+            t_vid_start = time.time()
             try:
                 units = process_video(video, client)
                 if units is None:
                     # Subtitle missing or unreadable - do not mark as completed
-                    print(f"\n[-] Subtitle file not accessible for {vid}: {title_preview}")
+                    print(f"[-] Subtitle file not accessible for {vid}: {title_preview}", flush=True)
                     continue
 
                 if units:
@@ -223,8 +226,12 @@ def run_pipeline():
                 save_checkpoint(vid, len(units))
                 processed_set.add(vid)
 
+                t_vid_elapsed = round(time.time() - t_vid_start, 1)
+                pbar.set_postfix_str(f"+{len(units)} QA ({t_vid_elapsed}s) | Total: {total_extracted_session}")
+                sys.stdout.flush()
+
             except Exception as e:
-                print(f"\n[-] Error on video {vid}: {e}")
+                print(f"\n[-] Error on video {vid}: {e}", flush=True)
                 time.sleep(2)
 
     except KeyboardInterrupt:

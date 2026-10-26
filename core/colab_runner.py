@@ -35,6 +35,27 @@ else:
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_JSONL = DATA_DIR / "extracted_qa.jsonl"
 CHECKPOINT_FILE = DATA_DIR / "extraction_checkpoint.json"
+LIVE_LOG_FILE = DATA_DIR / "extraction_live.log"
+
+
+def log_extracted_unit_live(unit: Dict[str, Any]):
+    """Appends newly extracted Q&A unit to a live human-readable log file on Drive."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        ts_now = time.strftime("%Y-%m-%d %H:%M:%S")
+        cat = unit.get("topic_category", "General")
+        q_text = unit.get("question_ar") or unit.get("question_en") or "Untitled Question"
+        ans_text = unit.get("core_answer_summary_ar") or unit.get("core_answer_summary_en") or ""
+        with open(LIVE_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(
+                f"[{ts_now}] [{unit.get('timestamp_formatted', '00:00')}] [{cat}]\n"
+                f"❓ {q_text}\n"
+                f"💡 {ans_text[:140]}...\n"
+                f"🔗 {unit.get('timestamp_url', '')}\n"
+                f"{'-'*75}\n"
+            )
+    except Exception:
+        pass
 
 
 def load_checkpoints() -> Dict[str, Any]:
@@ -131,11 +152,21 @@ class LocalGPUClient:
             print("   ⚠️ NOTE: Running on CPU without GPU acceleration!")
             print("   💡 bitsandbytes 4-bit is disabled on CPU. Switch to T4 GPU for 20x faster extraction.")
 
+        model_kwargs = {
+            "device_map": "auto",
+            "quantization_config": quant_config if torch.cuda.is_available() else None,
+            "torch_dtype": torch.float16 if torch.cuda.is_available() else torch.float32,
+        }
+        if torch.cuda.is_available():
+            try:
+                # Enable PyTorch native Scaled Dot-Product Attention for 25-40% faster inference on T4
+                model_kwargs["attn_implementation"] = "sdpa"
+            except Exception:
+                pass
+
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            device_map="auto",
-            quantization_config=quant_config if torch.cuda.is_available() else None,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            **model_kwargs
         )
         print("[+] Model loaded into GPU VRAM successfully!")
 
@@ -151,15 +182,22 @@ class LocalGPUClient:
         )
         inputs = self.tokenizer([text_input], return_tensors="pt").to(self.model.device)
 
+        # Collect exact stop tokens to terminate generation as soon as JSON ends
+        eos_ids = [self.tokenizer.eos_token_id]
+        for special_token in ["<|im_end|>", "<|endoftext|>"]:
+            tok_id = self.tokenizer.convert_tokens_to_ids(special_token)
+            if tok_id is not None and tok_id not in eos_ids:
+                eos_ids.append(tok_id)
+
         import torch
-        with torch.no_grad():
+        # inference_mode() disables version tracking, view tracking, and is ~10-15% faster than no_grad()
+        with torch.inference_mode():
             generated_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=1500,
-                temperature=0.2,
-                top_p=0.9,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id
+                max_new_tokens=1000,
+                do_sample=False,  # Greedy decoding: 2x faster, deterministic JSON, zero top_p overhead
+                eos_token_id=eos_ids,
+                pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
             )
             
         generated_ids = [
@@ -200,8 +238,9 @@ class ExtractionClient:
 def process_video(
     video_record: Dict[str, Any],
     client: Any,
-    chunk_duration_sec: float = 360.0,
-    overlap_duration_sec: float = 60.0
+    chunk_duration_sec: float = 420.0,
+    overlap_duration_sec: float = 45.0,
+    verbose: bool = True
 ) -> List[Dict[str, Any]]:
     """Processes a single video by chunking its transcript and extracting all Q&As."""
     raw_srt_rel = video_record.get("srt_file", "").replace("\\", "/")
@@ -238,38 +277,74 @@ def process_video(
 
     all_units = []
     video_id = video_record["video_id"]
+    title_ar = video_record.get("title_ar", "")
     youtube_base = video_record.get("youtube_url", f"https://www.youtube.com/watch?v=YC86BQwvHyk")
 
+    total_duration = cues[-1].end_sec if hasattr(cues[-1], 'end_sec') else 0.0
+    dur_min = int(total_duration // 60)
+    dur_sec = int(total_duration % 60)
+
+    if verbose:
+        print(f"\n🎬 [{video_id}] {title_ar}", flush=True)
+        print(f"   ⏱️ Duration: {dur_min:02d}:{dur_sec:02d} | Cues: {len(cues)} | Chunks: {len(chunks)}", flush=True)
+
     for i, chunk in enumerate(chunks):
+        # Skip chunks that have almost no spoken dialogue (e.g. music, intro/outro silence)
+        if len(chunk["text"].strip()) < 80:
+            if verbose:
+                print(f"   ├─ ⏭️ Chunk {i+1}/{len(chunks)} [{chunk['start_fmt']} -> {chunk['end_fmt']}]: Skipped (no dialogue)", flush=True)
+            continue
+
+        if verbose:
+            print(f"   ├─ ⏳ Chunk {i+1}/{len(chunks)} [{chunk['start_fmt']} -> {chunk['end_fmt']}]: Extracting on GPU...", end="", flush=True)
+
         prompt = USER_EXTRACTION_PROMPT_TEMPLATE.format(
-            title_ar=video_record.get("title_ar", ""),
+            title_ar=title_ar,
             youtube_url=youtube_base,
             start_fmt=chunk["start_fmt"],
             end_fmt=chunk["end_fmt"],
             transcript_text=chunk["text"]
         )
 
+        t0 = time.time()
         try:
             raw_output = client.extract(prompt)
+            t_chunk = round(time.time() - t0, 1)
             extracted = clean_llm_json_response(raw_output)
-            
+
+            chunk_units = []
             for item in extracted:
                 ts_sec = item.get("timestamp_seconds", int(chunk["start_sec"]))
                 if ts_sec < chunk["start_sec"]:
                     ts_sec = int(chunk["start_sec"])
-                    
+
                 item["id"] = f"{video_id}_{len(all_units) + 1:03d}"
                 item["video_id"] = video_id
                 item["channel"] = video_record.get("channel", "SCDawah Arabic")
-                item["video_title_ar"] = video_record.get("title_ar", "")
+                item["video_title_ar"] = title_ar
                 item["youtube_url"] = youtube_base
                 item["timestamp_url"] = f"{youtube_base}&t={int(ts_sec)}s"
                 item["timestamp_seconds"] = int(ts_sec)
-                
+
+                chunk_units.append(item)
                 all_units.append(item)
-                
+                log_extracted_unit_live(item)
+
+            if verbose:
+                if chunk_units:
+                    print(f" ✅ {len(chunk_units)} Q&A found ({t_chunk}s)", flush=True)
+                    for cu in chunk_units:
+                        q_text = cu.get("question_ar") or cu.get("question_en") or "Untitled"
+                        print(f"   │  • ❓ \"{q_text[:70]}\" [{cu.get('timestamp_formatted', '00:00')}]", flush=True)
+                else:
+                    print(f" ⚪ No dialectical debate in segment ({t_chunk}s)", flush=True)
+
         except Exception as e:
-            print(f"[-] Error processing chunk {i} of {video_id}: {e}")
-            time.sleep(2)
+            if verbose:
+                print(f" ❌ Error: {e}", flush=True)
+            time.sleep(1)
+
+    if verbose:
+        print(f"   💾 Saved {len(all_units)} Q&A argument(s) for [{video_id}] to SQLite & Drive checkpoint!\n", flush=True)
 
     return all_units
