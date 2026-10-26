@@ -202,6 +202,8 @@ def run_pipeline():
     total_videos = len(manifest)
     completed_videos = len(processed_set)
     remaining_manifest = [v for v in manifest if v["video_id"] not in processed_set]
+    # Prioritize deep full-length street debates (largest transcripts first) for rich argument extraction
+    remaining_manifest.sort(key=lambda x: x.get("file_size", 0), reverse=True)
     remaining_videos = len(remaining_manifest)
 
     print("\n[5/5] Starting Batch Dialectical Extraction...")
