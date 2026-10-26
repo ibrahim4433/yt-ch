@@ -97,7 +97,7 @@ def append_extracted_units(units: List[Dict[str, Any]]):
 
 
 def clean_llm_json_response(raw_text: str) -> List[Dict[str, Any]]:
-    """Strips markdown code fences and parses JSON safely."""
+    """Strips markdown code fences and parses JSON safely, including partial/truncated streams."""
     text = raw_text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
@@ -105,22 +105,58 @@ def clean_llm_json_response(raw_text: str) -> List[Dict[str, Any]]:
     try:
         data = json.loads(text)
         if isinstance(data, list):
-            return data
+            return [x for x in data if isinstance(x, dict) and ('question_en' in x or 'question_ar' in x)]
         elif isinstance(data, dict):
             for v in data.values():
                 if isinstance(v, list):
-                    return v
-            return [data]
-        return []
-    except json.JSONDecodeError:
-        # Regex fallback to find JSON array
-        match = re.search(r"\[\s*\{.*\}\s*\]", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except Exception:
-                pass
-        return []
+                    return [x for x in v if isinstance(x, dict) and ('question_en' in x or 'question_ar' in x)]
+            if 'question_en' in data or 'question_ar' in data:
+                return [data]
+    except Exception:
+        pass
+
+    # Regex fallback to find full JSON array
+    match = re.search(r"\[\s*\{.*\}\s*\]", text, re.DOTALL)
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+            if isinstance(parsed, list):
+                return [x for x in parsed if isinstance(x, dict) and ('question_en' in x or 'question_ar' in x)]
+        except Exception:
+            pass
+
+    # Stream parser fallback: extracts all completed { ... } objects even if the outer array was truncated
+    results = []
+    depth = 0
+    start = -1
+    in_string = False
+    escape = False
+
+    for i, char in enumerate(text):
+        if char == '"' and not escape:
+            in_string = not in_string
+        elif char == '\\' and in_string:
+            escape = not escape
+            continue
+        elif not in_string:
+            if char == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0 and start != -1:
+                    obj_str = text[start:i+1]
+                    try:
+                        obj = json.loads(obj_str)
+                        if isinstance(obj, dict) and ('question_en' in obj or 'question_ar' in obj):
+                            results.append(obj)
+                    except Exception:
+                        pass
+                    start = -1
+        escape = False
+
+    return results
 
 
 class LocalGPUClient:
@@ -198,7 +234,7 @@ class LocalGPUClient:
             with torch.inference_mode():
                 generated_ids = self.model.generate(
                     **inputs,
-                    max_new_tokens=900,
+                    max_new_tokens=1500,
                     temperature=0.2,
                     top_p=0.9,
                     do_sample=True,
@@ -382,7 +418,11 @@ def process_video(
                         q_text = cu.get("question_ar") or cu.get("question_en") or "Untitled"
                         print(f"   │  • ❓ \"{q_text[:70]}\" [{cu.get('timestamp_formatted', '00:00')}]", flush=True)
                 else:
-                    print(f" ⚪ No dialectical debate in segment ({t_chunk}s)", flush=True)
+                    preview_txt = raw_output.strip().replace("\n", " ")[:60]
+                    if preview_txt and preview_txt != "[]":
+                        print(f" ⚪ No dialectical debate in segment ({t_chunk}s) [Raw: {preview_txt}...]", flush=True)
+                    else:
+                        print(f" ⚪ No dialectical debate in segment ({t_chunk}s)", flush=True)
 
         except Exception as e:
             if verbose:
