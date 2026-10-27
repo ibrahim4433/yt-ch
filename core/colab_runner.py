@@ -85,7 +85,39 @@ def save_checkpoint(video_id: str, count_extracted: int):
     if video_id not in state["processed_video_ids"]:
         state["processed_video_ids"].append(video_id)
         state["total_qa_extracted"] = state.get("total_qa_extracted", 0) + count_extracted
+    # Clear any chunk-level tracking once video is fully marked done
+    if "chunk_progress" in state and video_id in state["chunk_progress"]:
+        del state["chunk_progress"][video_id]
     save_checkpoints_dict(state)
+
+
+def save_chunk_checkpoint(video_id: str, chunk_index: int, total_chunks: int, count_extracted: int):
+    """Saves granular chunk progress so interruptions resume exactly from the last completed chunk."""
+    state = load_checkpoints()
+    if "chunk_progress" not in state:
+        state["chunk_progress"] = {}
+    state["chunk_progress"][video_id] = {
+        "chunk_index": chunk_index,
+        "total_chunks": total_chunks,
+        "count_extracted": count_extracted,
+        "updated_at": time.time()
+    }
+    save_checkpoints_dict(state)
+
+
+def get_chunk_checkpoint(video_id: str) -> int:
+    """Returns the last completed chunk index (0 if not started)."""
+    state = load_checkpoints()
+    prog = state.get("chunk_progress", {}).get(video_id, {})
+    return prog.get("chunk_index", 0)
+
+
+def clear_chunk_checkpoint(video_id: str):
+    """Clears chunk progress once the entire video is fully completed."""
+    state = load_checkpoints()
+    if "chunk_progress" in state and video_id in state["chunk_progress"]:
+        del state["chunk_progress"][video_id]
+        save_checkpoints_dict(state)
 
 
 def append_extracted_units(units: List[Dict[str, Any]]):
@@ -369,7 +401,15 @@ def process_video(
         print(f"\n🎬 [{video_id}] {title_ar}", flush=True)
         print(f"   ⏱️ Duration: {dur_min:02d}:{dur_sec:02d} | Cues: {len(cues)} | Chunks: {len(chunks)}", flush=True)
 
+    start_chunk_idx = get_chunk_checkpoint(video_id)
+    if start_chunk_idx > 0 and start_chunk_idx < len(chunks):
+        if verbose:
+            print(f"   🔄 Resuming from Chunk {start_chunk_idx + 1}/{len(chunks)} (Chunks 1-{start_chunk_idx} already saved in DB)...", flush=True)
+
     for i, chunk in enumerate(chunks):
+        if i < start_chunk_idx:
+            continue
+
         # Skip chunks that have almost no spoken dialogue (e.g. music, intro/outro silence)
         if len(chunk["text"].strip()) < 80:
             if verbose:
@@ -427,6 +467,19 @@ def process_video(
                 all_units.append(item)
                 log_extracted_unit_live(item)
 
+            # Live chunk persistence: Append to JSONL and SQLite immediately
+            if chunk_units:
+                append_extracted_units(chunk_units)
+                try:
+                    from db.database import insert_qa_unit
+                    for cu in chunk_units:
+                        insert_qa_unit(cu)
+                except Exception:
+                    pass
+
+            # Update chunk-level checkpoint
+            save_chunk_checkpoint(video_id, i + 1, len(chunks), len(all_units))
+
             if verbose:
                 if chunk_units:
                     print(f" ✅ {len(chunk_units)} Q&A found ({t_chunk}s)", flush=True)
@@ -445,7 +498,8 @@ def process_video(
                 print(f" ❌ Error: {e}", flush=True)
             time.sleep(1)
 
+    clear_chunk_checkpoint(video_id)
     if verbose:
-        print(f"   💾 Saved {len(all_units)} Q&A argument(s) for [{video_id}] to SQLite & Drive checkpoint!\n", flush=True)
+        print(f"   💾 Completed all {len(chunks)} chunks for [{video_id}] ({len(all_units)} Q&As saved to SQLite & Drive)!\n", flush=True)
 
     return all_units
