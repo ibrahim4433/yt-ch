@@ -151,14 +151,32 @@ def build_continuous_transcript(cues: List[SubtitleCue], include_timestamps: boo
     return "\n".join(lines)
 
 
+def find_natural_boundary(cues: List[SubtitleCue], target_sec: float, search_window_sec: float = 20.0) -> float:
+    """Finds the nearest natural speech break (pause >= 0.8s or sentence ending) within search_window_sec of target_sec."""
+    best_time = target_sec
+    best_score = -1
+    for i, c in enumerate(cues):
+        if abs(c.end_sec - target_sec) <= search_window_sec:
+            score = 0
+            if c.text.rstrip().endswith((".", "?", "!", "...", "؟", ":", ";")):
+                score += 5
+            if i + 1 < len(cues) and (cues[i + 1].start_sec - c.end_sec >= 0.8):
+                score += 10
+            if score > best_score:
+                best_score = score
+                best_time = c.end_sec
+    return best_time
+
+
 def chunk_transcript_for_extraction(
     cues: List[SubtitleCue],
-    chunk_duration_sec: float = 360.0,  # 6-minute window
+    chunk_duration_sec: float = 240.0,  # 4-minute window
     overlap_duration_sec: float = 60.0  # 1-minute overlap to preserve boundaries
 ) -> List[Dict[str, Any]]:
     """
-    Splits long videos into overlapping contextual windows
-    to ensure NO philosophical exchange is fragmented or lost.
+    Splits long videos into overlapping, boundary-aware contextual windows.
+    Snaps cuts to natural speech pauses and sentence completions so NO dialectical exchange
+    is fragmented or lost across chunk boundaries.
     """
     if not cues:
         return []
@@ -168,13 +186,21 @@ def chunk_transcript_for_extraction(
     
     current_start = 0.0
     while current_start < total_duration:
-        current_end = current_start + chunk_duration_sec
+        target_end = current_start + chunk_duration_sec
+        if target_end < total_duration - 30.0:
+            current_end = find_natural_boundary(cues, target_end, search_window_sec=20.0)
+        else:
+            current_end = total_duration
+
+        # Ensure current_end is strictly greater than current_start
+        if current_end <= current_start + 60.0:
+            current_end = current_start + chunk_duration_sec
         
         # Select all cues within [current_start, current_end]
         window_cues = [
             c for c in cues 
-            if (c.start_sec >= current_start and c.start_sec < current_end)
-            or (c.end_sec > current_start and c.end_sec <= current_end)
+            if (c.start_sec >= current_start and c.start_sec <= current_end)
+            or (c.end_sec >= current_start and c.end_sec <= current_end)
         ]
         
         if window_cues:
@@ -192,7 +218,12 @@ def chunk_transcript_for_extraction(
                 "text": text
             })
             
-        current_start += (chunk_duration_sec - overlap_duration_sec)
+        next_start = current_end - overlap_duration_sec
+        # Strictly ensure forward progress
+        if next_start <= current_start:
+            next_start = current_start + (chunk_duration_sec - overlap_duration_sec)
+
+        current_start = next_start
         
         # Avoid tiny residual trailing chunks
         if current_start >= total_duration - 30.0:

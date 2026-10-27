@@ -311,7 +311,7 @@ def process_video(
     video_record: Dict[str, Any],
     client: Any,
     chunk_duration_sec: float = 240.0,
-    overlap_duration_sec: float = 30.0,
+    overlap_duration_sec: float = 60.0,
     verbose: bool = True
 ) -> List[Dict[str, Any]]:
     """Processes a single video by chunking its transcript and extracting all Q&As."""
@@ -398,6 +398,22 @@ def process_video(
                 ts_sec = item.get("timestamp_seconds", int(chunk["start_sec"]))
                 if ts_sec < chunk["start_sec"]:
                     ts_sec = int(chunk["start_sec"])
+
+                # Overlap deduplication: prevent saving identical question from overlapping chunk window
+                q_ar = item.get("question_ar", "").strip()
+                q_en = item.get("question_en", "").strip()
+                is_duplicate = False
+                for existing in all_units:
+                    if abs(existing.get("timestamp_seconds", 0) - ts_sec) <= 90:
+                        ex_ar = existing.get("question_ar", "").strip()
+                        ex_en = existing.get("question_en", "").strip()
+                        if (q_ar and ex_ar and (q_ar == ex_ar or q_ar in ex_ar or ex_ar in q_ar)) or \
+                           (q_en and ex_en and (q_en.lower() == ex_en.lower() or q_en.lower() in ex_en.lower())):
+                            is_duplicate = True
+                            break
+
+                if is_duplicate:
+                    continue
 
                 item["id"] = f"{video_id}_{len(all_units) + 1:03d}"
                 item["video_id"] = video_id
