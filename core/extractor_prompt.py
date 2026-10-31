@@ -43,11 +43,11 @@ For each distinct question, objection, or inquiry in the transcript, extract a J
 }
 
 STRICT EXTRACTION RULES:
-1. COMPLETENESS: If a 7-minute transcript covers multiple objections or questions (e.g. about the Trinity, biblical verses, existence of God, morality, science, why Muslims fast), extract EVERY single one as a separate unit. Do not leave any valid inquiry or debate point unaddressed.
-2. ACCURACY: Ground the extraction strictly in the da'ee's real reasoning and spoken arguments. Do not invent positions not present in the dialogue.
-3. CLARITY: Polish the spoken question into a clear, searchable inquiry while keeping the original intent.
-4. TIMESTAMPS: Identify the exact starting timestamp `[MM:SS]` where this specific inquiry began.
-5. NO OMISSIONS: Even short exchanges or single objections must be extracted if they contain an intellectual inquiry or dialogue point.
+1. COMPLETENESS: If a transcript segment covers multiple objections or questions (e.g. about the Trinity, biblical verses, existence of God, morality, science, why Muslims fast), extract EVERY single one as a separate unit. Do not leave any valid inquiry or debate point unaddressed.
+2. SPEAKER ATTRIBUTION: "question_en" and "question_ar" must always represent the questioner/interlocutor's objection or inquiry (ending with '?' / '؟'). "core_answer_summary_en" and "core_answer_summary_ar" must always represent the Muslim Da'ee's response and refutation. Never reverse their roles.
+3. PURE ARABIC IN *_ar FIELDS: All Arabic fields (*_ar) MUST be written in 100% pure, eloquent Classical Arabic (اللغة العربية الفصحى النقية). NEVER mix English, Chinese, or Korean words/characters inside Arabic text (e.g., always write "المعجزات" never "المiracles", "النساخ" never "السcribes", "العدمية" never "نihilist").
+4. ACCURACY & CLARITY: Ground the extraction strictly in the da'ee's real spoken reasoning, and polish the spoken question into a clear, standalone, searchable inquiry.
+5. TIMESTAMPS: Identify the exact starting timestamp `[MM:SS]` where this specific inquiry began.
 6. Return your output strictly as a JSON array of objects: `[ { ... }, { ... } ]`.
 """
 

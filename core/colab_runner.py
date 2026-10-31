@@ -191,22 +191,100 @@ def clean_llm_json_response(raw_text: str) -> List[Dict[str, Any]]:
     return results
 
 
+def sanitize_extracted_arabic_unit(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Removes any stray CJK/Korean tokens or common Arabic-Latin splices from generated fields."""
+    replacements = [
+        ("따라서،", "لذلك،"), ("따라서", "لذلك"), ("여전히", "لا تزال"),
+        ("المiracles", "المعجزات"), ("فالمachines", "فالآلات"), ("كمessenger", "كرسول"),
+        ("للمonotheism", "للتوحيد"), ("السcribes", "النساخ"), ("للسcribes", "للنساخ"),
+        ("نihilist", "عدمي"), ("النihilists", "العدميون"), ("بprocesseات", "بعمليات"),
+        ("مutually exclusive", "متنافيين"), ("ال hypocritical", "النفاق وازدواجية المعايير"),
+        ("بهomo جنسياً", "بميول مثلية"), ("التطهيرracial", "التطهير العرقي"),
+    ]
+    ar_keys = [
+        "question_ar", "core_answer_summary_ar",
+        "fallacy_or_misconception_exposed_ar", "analogy_or_metaphor_ar",
+        "socratic_question_ar", "verbatim_quote_ar"
+    ]
+    for k in ar_keys:
+        val = item.get(k)
+        if isinstance(val, str) and val:
+            for old_s, new_s in replacements:
+                if old_s in val:
+                    val = val.replace(old_s, new_s)
+            val = re.sub(r"[\u4e00-\u9fff\uac00-\ud7af\ufffd]+", "", val)
+            item[k] = val.strip()
+
+    premises = item.get("logical_premises_ar")
+    if isinstance(premises, list):
+        clean_premises = []
+        for p in premises:
+            if isinstance(p, str):
+                for old_s, new_s in replacements:
+                    if old_s in p:
+                        p = p.replace(old_s, new_s)
+                p = re.sub(r"[\u4e00-\u9fff\uac00-\ud7af\ufffd]+", "", p).strip()
+                clean_premises.append(p)
+        item["logical_premises_ar"] = clean_premises
+    return item
+
+
 class LocalGPUClient:
     """
-    Runs an open-weight model directly on the Google Colab GPU (T4 / A100 / V5e).
-    Zero API keys, zero external internet dependencies, zero rate limits.
+    Runs Qwen 2.5 14B Instruct directly on the Google Colab GPU (T4 15GB / A100).
+    Supports GGUF Q5_K_M (5-bit weights + 8-bit KV Cache + 8192 Context) via llama-cpp-python,
+    with automatic fallback to HuggingFace Transformers 4-bit NF4.
     """
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-7B-Instruct", load_in_4bit: bool = True):
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2.5-14B-Instruct",
+        load_in_4bit: bool = True,
+        use_gguf_q5: bool = True,
+        gguf_repo: str = "bartowski/Qwen2.5-14B-Instruct-GGUF",
+        gguf_filename: str = "Qwen2.5-14B-Instruct-Q5_K_M.gguf",
+        context_length: int = 8192
+    ):
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.backend = "transformers"
+        self.context_length = context_length
 
-        print(f"[+] Initializing Local GPU Model: {model_name}")
+        print(f"[+] Initializing Local GPU Model: {model_name} (Target: 14B Q5_K_M / 8192 ctx)")
         print(f"[+] CUDA Available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
             print(f"[+] GPU Device: {torch.cuda.get_device_name(0)}")
 
+        # 1. Try GGUF Q5_K_M (5-bit) with 8-bit KV Cache & 8192 Context if enabled and llama_cpp GPU is available
+        if use_gguf_q5 and torch.cuda.is_available():
+            try:
+                from llama_cpp import Llama, llama_supports_gpu_offload
+                from huggingface_hub import hf_hub_download
+
+                if llama_supports_gpu_offload():
+                    print(f"[+] Downloading/Loading 5-bit GGUF: {gguf_repo}/{gguf_filename} (~10.5 GB)...")
+                    model_path = hf_hub_download(repo_id=gguf_repo, filename=gguf_filename)
+                    # GGML_TYPE_Q8_0 = 8 for 8-bit KV Cache (~2 GB for 8192 context)
+                    self.llm = Llama(
+                        model_path=model_path,
+                        n_gpu_layers=-1,
+                        n_ctx=context_length,
+                        n_batch=512,
+                        type_k=8,
+                        type_v=8,
+                        flash_attn=True,
+                        verbose=False
+                    )
+                    self.backend = "gguf"
+                    print(f"[+] Qwen 2.5 14B Q5_K_M (5-bit) + 8-bit KV Cache (8,192 ctx) loaded into VRAM!")
+                    return
+                else:
+                    print("[-] llama-cpp-python installed without CUDA offload; falling back to Transformers GPU backend.")
+            except Exception as e:
+                print(f"[-] GGUF Q5_K_M init note ({e}); using Transformers 14B GPU backend.")
+
+        # 2. Transformers Backend (Qwen/Qwen2.5-14B-Instruct in 4-bit NF4 + SDPA Flash Attention)
+        from transformers import AutoModelForCausalLM, AutoTokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
+
         quant_config = None
         if load_in_4bit and torch.cuda.is_available():
             try:
@@ -221,7 +299,6 @@ class LocalGPUClient:
                 print("[-] bitsandbytes not found, continuing without 4-bit quant.")
         elif not torch.cuda.is_available():
             print("   ⚠️ NOTE: Running on CPU without GPU acceleration!")
-            print("   💡 bitsandbytes 4-bit is disabled on CPU. Switch to T4 GPU for 20x faster extraction.")
 
         model_kwargs = {
             "device_map": "auto",
@@ -230,7 +307,6 @@ class LocalGPUClient:
         }
         if torch.cuda.is_available():
             try:
-                # Enable PyTorch native Scaled Dot-Product Attention for 25-40% faster inference on T4
                 model_kwargs["attn_implementation"] = "sdpa"
             except Exception:
                 pass
@@ -239,13 +315,23 @@ class LocalGPUClient:
             model_name,
             **model_kwargs
         )
-        print("[+] Model loaded into GPU VRAM successfully!")
+        print(f"[+] {model_name} loaded into GPU VRAM successfully!")
 
     def extract(self, prompt: str) -> str:
         messages = [
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
         ]
+
+        if self.backend == "gguf":
+            res = self.llm.create_chat_completion(
+                messages=messages,
+                max_tokens=1800,
+                temperature=0.15,
+                top_p=0.9,
+            )
+            return res["choices"][0]["message"]["content"]
+
         text_input = self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
@@ -253,7 +339,6 @@ class LocalGPUClient:
         )
         inputs = self.tokenizer([text_input], return_tensors="pt").to(self.model.device)
 
-        # Collect exact stop tokens to terminate generation as soon as JSON ends
         eos_ids = [self.tokenizer.eos_token_id]
         for special_token in ["<|im_end|>", "<|endoftext|>"]:
             tok_id = self.tokenizer.convert_tokens_to_ids(special_token)
@@ -261,19 +346,18 @@ class LocalGPUClient:
                 eos_ids.append(tok_id)
 
         import torch
-        # inference_mode() disables version tracking, view tracking, and is ~10-15% faster than no_grad()
         try:
             with torch.inference_mode():
                 generated_ids = self.model.generate(
                     **inputs,
-                    max_new_tokens=1500,
-                    temperature=0.2,
+                    max_new_tokens=1800,
+                    temperature=0.15,
                     top_p=0.9,
                     do_sample=True,
                     eos_token_id=eos_ids,
                     pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
                 )
-                
+
             generated_ids = [
                 output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
             ]
@@ -287,7 +371,7 @@ class LocalGPUClient:
 
 class ExtractionClient:
     """Universal client supporting Local Colab GPU or API fallback."""
-    def __init__(self, provider: str = "local_gpu", model_name: str = "Qwen/Qwen2.5-7B-Instruct"):
+    def __init__(self, provider: str = "local_gpu", model_name: str = "Qwen/Qwen2.5-14B-Instruct"):
         self.provider = provider.lower()
         if self.provider == "local_gpu":
             self.client = LocalGPUClient(model_name=model_name, load_in_4bit=True)
@@ -435,6 +519,7 @@ def process_video(
 
             chunk_units = []
             for item in extracted:
+                item = sanitize_extracted_arabic_unit(item)
                 ts_sec = item.get("timestamp_seconds", int(chunk["start_sec"]))
                 if ts_sec < chunk["start_sec"]:
                     ts_sec = int(chunk["start_sec"])

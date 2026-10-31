@@ -92,7 +92,7 @@ def setup_environment():
 # 2. Auto-Install Dependencies if Missing
 def ensure_dependencies():
     print("\n[2/5] Checking GPU acceleration packages...")
-    packages = ["transformers", "torch", "accelerate", "bitsandbytes", "tqdm"]
+    packages = ["transformers", "torch", "accelerate", "bitsandbytes", "huggingface_hub", "tqdm"]
     missing = []
     for pkg in packages:
         try:
@@ -100,13 +100,37 @@ def ensure_dependencies():
         except ImportError:
             missing.append(pkg)
 
+    import subprocess
     if missing:
-        import subprocess
         print(f"   -> Installing missing packages: {', '.join(missing)}...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-q"] + missing)
-        print("   -> Packages installed successfully.")
+        print("   -> Core packages installed successfully.")
     else:
-        print("   -> All required packages already installed.")
+        print("   -> Core packages already installed.")
+
+    # Ensure pre-built CUDA wheel for llama-cpp-python (for Qwen 2.5 14B Q5_K_M GGUF + 8-bit KV Cache)
+    try:
+        import llama_cpp
+        if not llama_cpp.llama_supports_gpu_offload():
+            raise ImportError("llama_cpp lacks GPU offload")
+    except Exception:
+        print("   -> Installing pre-built CUDA wheel for llama-cpp-python (Q5_K_M GGUF engine)...")
+        installed_wheel = False
+        for cu_ver in ["cu124", "cu122", "cu121"]:
+            try:
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install", "-q",
+                    "llama-cpp-python",
+                    "--only-binary=:all:",
+                    f"--extra-index-url=https://abetlen.github.io/llama-cpp-python/whl/{cu_ver}"
+                ])
+                installed_wheel = True
+                print(f"   -> llama-cpp-python ({cu_ver}) pre-built GPU wheel installed!")
+                break
+            except Exception:
+                continue
+        if not installed_wheel:
+            print("   -> Pre-built llama-cpp wheel not matched; will use Transformers 14B GPU engine.")
 
 
 # 3. Main One-Step Execution Loop
@@ -134,12 +158,20 @@ def run_pipeline():
     # Initialize SQLite Database
     init_db()
 
-    # Auto-enrich any previous records in Google Drive that are missing Arabic dialectical fields
+    # Auto-enrich and sanitize any previous records in Google Drive
     try:
         from scripts.enrich_arabic_db import run_enrichment
         run_enrichment(DB_PATH)
     except Exception as e:
         print(f"   [-] Note on Arabic enrichment check: {e}")
+
+    try:
+        from scripts.sync_and_clean_607 import clean_db_glitches
+        fixed_cnt = clean_db_glitches(DB_PATH)
+        if fixed_cnt > 0:
+            print(f"   🧹 Cleaned {fixed_cnt} records from CJK/English token splices in SQLite DB!")
+    except Exception as e:
+        print(f"   [-] Note on DB glitch sanitizer: {e}")
 
     # Verify GPU
     print("\n[3/5] Verifying GPU hardware...")
@@ -150,9 +182,14 @@ def run_pipeline():
     else:
         print("   ⚠️ No GPU detected! Running on CPU (will be slower).")
 
-    # Load Model
-    print("\n[4/5] Loading Qwen 2.5 7B Instruct (4-bit) into GPU memory...")
-    client = LocalGPUClient(model_name="Qwen/Qwen2.5-7B-Instruct", load_in_4bit=True)
+    # Load Model: Qwen 2.5 14B Instruct (Q5_K_M 5-bit GGUF + 8-bit KV Cache + 8192 Context)
+    print("\n[4/5] Loading Qwen 2.5 14B Instruct (Q5_K_M 5-bit / 8192 ctx / 8-bit KV Cache) into GPU memory...")
+    client = LocalGPUClient(
+        model_name="Qwen/Qwen2.5-14B-Instruct",
+        load_in_4bit=True,
+        use_gguf_q5=True,
+        context_length=8192
+    )
 
     # Load Manifest & Checkpoints
     manifest_path = DATA_DIR / "video_manifest.json"
